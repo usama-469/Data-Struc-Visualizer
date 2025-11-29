@@ -712,6 +712,102 @@ def visualize_file(py_path: str, out_html: str = None):
             background-color: #252525;
             border-color: #444;
         }
+        #file-hierarchy-panel {
+            position: fixed;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(255, 255, 255, 0.95);
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            padding: 12px;
+            max-width: 350px;
+            max-height: 70vh;
+            overflow-y: auto;
+            z-index: 9998;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
+        }
+        body.dark-mode #file-hierarchy-panel {
+            background-color: rgba(30, 30, 30, 0.95);
+            border-color: #555;
+            color: #e0e0e0;
+        }
+        #file-hierarchy-panel h4 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            color: #333;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 8px;
+            transition: color 0.3s ease, border-color 0.3s ease;
+        }
+        body.dark-mode #file-hierarchy-panel h4 {
+            color: #e0e0e0;
+            border-color: #555;
+        }
+        .file-item {
+            margin: 6px 0;
+            padding: 4px 0;
+        }
+        .file-checkbox {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            font-size: 11px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+        }
+        .file-checkbox:hover {
+            background-color: rgba(0, 100, 200, 0.1);
+        }
+        body.dark-mode .file-checkbox:hover {
+            background-color: rgba(100, 150, 255, 0.15);
+        }
+        .file-checkbox input {
+            margin-right: 8px;
+            cursor: pointer;
+        }
+        .file-checkbox label {
+            cursor: pointer;
+            flex: 1;
+            word-break: break-all;
+        }
+        .file-stats {
+            font-size: 9px;
+            color: #888;
+            margin-left: 24px;
+            font-style: italic;
+        }
+        body.dark-mode .file-stats {
+            color: #999;
+        }
+        .hierarchy-controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .hierarchy-btn {
+            flex: 1;
+            padding: 4px 8px;
+            font-size: 10px;
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s ease, border-color 0.3s ease;
+        }
+        .hierarchy-btn:hover {
+            background-color: #e0e0e0;
+        }
+        body.dark-mode .hierarchy-btn {
+            background-color: #3a3a3a;
+            border-color: #555;
+            color: #e0e0e0;
+        }
+        body.dark-mode .hierarchy-btn:hover {
+            background-color: #4a4a4a;
+        }
         #info-panel code {
             font-family: 'Courier New', monospace;
             font-size: 10px;
@@ -801,8 +897,307 @@ def visualize_file(py_path: str, out_html: str = None):
         <div id="info-content"></div>
     </div>
     
+    <div id="file-hierarchy-panel">
+        <h4>📁 File Hierarchy</h4>
+        <div class="hierarchy-controls">
+            <button class="hierarchy-btn" onclick="selectAllFiles()">Select All</button>
+            <button class="hierarchy-btn" onclick="deselectAllFiles()">Deselect All</button>
+        </div>
+        <div id="file-list"></div>
+    </div>
+    
     <script>
         let graphData = null;
+        let fileNodeMap = {}; // Maps file names to their associated node indices
+        let allFiles = [];
+        
+        // Build file hierarchy and node mapping
+        function buildFileHierarchy() {
+            const myDiv = document.getElementById('myDiv');
+            if (!myDiv || !myDiv.data) return;
+            
+            fileNodeMap = {};
+            const fileStats = {};
+            
+            // Scan all traces to find module nodes and their children
+            myDiv.data.forEach((trace, idx) => {
+                if (idx === 0) return; // Skip edge trace
+                
+                if (trace.customdata) {
+                    trace.customdata.forEach((data, pointIdx) => {
+                        if (data && data[2]) { // data[2] is the module name
+                            const moduleName = data[2];
+                            if (!fileNodeMap[moduleName]) {
+                                fileNodeMap[moduleName] = [];
+                            }
+                            fileNodeMap[moduleName].push({ traceIdx: idx, pointIdx: pointIdx });
+                            
+                            // Track stats
+                            if (!fileStats[moduleName]) {
+                                fileStats[moduleName] = { nodes: 0, type: trace.name };
+                            }
+                            fileStats[moduleName].nodes++;
+                        }
+                    });
+                }
+                
+                // Also check for module nodes themselves
+                if (trace.name === 'module' && trace.text) {
+                    trace.text.forEach((text, pointIdx) => {
+                        if (!fileNodeMap[text]) {
+                            fileNodeMap[text] = [];
+                        }
+                        fileNodeMap[text].push({ traceIdx: idx, pointIdx: pointIdx });
+                        if (!fileStats[text]) {
+                            fileStats[text] = { nodes: 1, type: 'module' };
+                        }
+                    });
+                }
+            });
+            
+            allFiles = Object.keys(fileNodeMap).sort();
+            
+            // Populate the file list UI
+            const fileList = document.getElementById('file-list');
+            if (!fileList) return;
+            
+            fileList.innerHTML = '';
+            allFiles.forEach(fileName => {
+                const stats = fileStats[fileName] || { nodes: 0 };
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                
+                const checkbox = document.createElement('div');
+                checkbox.className = 'file-checkbox';
+                checkbox.innerHTML = `
+                    <input type="checkbox" id="file-${fileName}" checked onchange="toggleFile('${fileName.replace(/'/g, "\\'")}')"/>
+                    <label for="file-${fileName}">${fileName}</label>
+                `;
+                
+                const statDiv = document.createElement('div');
+                statDiv.className = 'file-stats';
+                statDiv.textContent = `${stats.nodes} node(s)`;
+                
+                fileItem.appendChild(checkbox);
+                fileItem.appendChild(statDiv);
+                fileList.appendChild(fileItem);
+            });
+        }
+        
+        // Toggle file and regenerate graph with only selected files
+        function toggleFile(fileName) {
+            regenerateGraph();
+        }
+        
+        // Regenerate the graph based on selected files
+        function regenerateGraph() {
+            if (!graphData) return;
+            
+            // Get list of enabled files
+            const enabledFiles = allFiles.filter(fileName => {
+                const checkbox = document.getElementById(`file-${fileName}`);
+                return checkbox && checkbox.checked;
+            });
+            
+            if (enabledFiles.length === 0) {
+                // If no files selected, show empty graph
+                const myDiv = document.getElementById('myDiv');
+                const emptyData = [{
+                    x: [], y: [], z: [],
+                    mode: 'lines',
+                    type: 'scatter3d',
+                    line: {color: 'rgb(0,100,200)', width: 3},
+                    name: 'relations'
+                }];
+                Plotly.react('myDiv', emptyData, myDiv.layout);
+                return;
+            }
+            
+            const myDiv = document.getElementById('myDiv');
+            if (!myDiv || !graphData) return;
+            
+            // Filter the original data to include only nodes from enabled files
+            const filteredData = [];
+            
+            graphData.forEach((trace, idx) => {
+                if (idx === 0) {
+                    // Edge trace - we'll rebuild this based on filtered nodes
+                    filteredData.push({
+                        x: [], y: [], z: [],
+                        mode: 'lines',
+                        line: trace.line,
+                        opacity: trace.opacity,
+                        hoverinfo: trace.hoverinfo,
+                        hovertext: [],
+                        name: trace.name,
+                        type: 'scatter3d'
+                    });
+                } else {
+                    // Node traces - filter points by module
+                    const newTrace = {
+                        x: [], y: [], z: [],
+                        mode: trace.mode,
+                        text: [],
+                        textposition: trace.textposition,
+                        hovertext: [],
+                        hoverinfo: trace.hoverinfo,
+                        marker: JSON.parse(JSON.stringify(trace.marker)),
+                        customdata: [],
+                        name: trace.name,
+                        type: 'scatter3d'
+                    };
+                    
+                    // Filter points that belong to enabled files
+                    for (let i = 0; i < trace.x.length; i++) {
+                        const customData = trace.customdata ? trace.customdata[i] : null;
+                        const moduleName = customData ? customData[2] : null;
+                        
+                        // Include if: module is in enabled files, or it's a module node in enabled files
+                        let shouldInclude = false;
+                        
+                        if (trace.name === 'module' && trace.text && trace.text[i]) {
+                            shouldInclude = enabledFiles.includes(trace.text[i]);
+                        } else if (moduleName) {
+                            shouldInclude = enabledFiles.includes(moduleName);
+                        } else if (trace.name === 'import' || trace.name === 'builtin-function') {
+                            // Include imports and builtins if ANY file is selected
+                            shouldInclude = true;
+                        }
+                        
+                        if (shouldInclude) {
+                            newTrace.x.push(trace.x[i]);
+                            newTrace.y.push(trace.y[i]);
+                            newTrace.z.push(trace.z[i]);
+                            newTrace.text.push(trace.text ? trace.text[i] : '');
+                            newTrace.hovertext.push(trace.hovertext ? trace.hovertext[i] : '');
+                            if (trace.customdata) {
+                                newTrace.customdata.push(trace.customdata[i]);
+                            }
+                        }
+                    }
+                    
+                    if (newTrace.x.length > 0) {
+                        filteredData.push(newTrace);
+                    }
+                }
+            });
+            
+            // Rebuild edges based on filtered nodes
+            // Build a comprehensive map of visible nodes with all possible identifiers
+            const visibleNodes = new Map(); // Maps node identifier to {x, y, z, label}
+            const nodeIdentifiers = new Set(); // Set of all possible node identifiers
+            
+            filteredData.forEach((trace, idx) => {
+                if (idx > 0) {
+                    for (let i = 0; i < trace.x.length; i++) {
+                        const customData = trace.customdata ? trace.customdata[i] : null;
+                        const displayText = trace.text ? trace.text[i] : '';
+                        const module = customData ? customData[2] : '';
+                        const fullLabel = customData ? customData[4] : displayText;
+                        
+                        const nodeInfo = {
+                            x: trace.x[i],
+                            y: trace.y[i],
+                            z: trace.z[i],
+                            label: displayText
+                        };
+                        
+                        // Add all possible identifiers for this node
+                        // 1. Display text (e.g., "myFunction()")
+                        if (displayText) {
+                            visibleNodes.set(displayText, nodeInfo);
+                            nodeIdentifiers.add(displayText);
+                        }
+                        
+                        // 2. Full label (e.g., "module.py::myFunction()")
+                        if (fullLabel) {
+                            visibleNodes.set(fullLabel, nodeInfo);
+                            nodeIdentifiers.add(fullLabel);
+                        }
+                        
+                        // 3. Module::text format
+                        if (module && displayText && trace.name !== 'module') {
+                            const withModule = `${module}::${displayText}`;
+                            visibleNodes.set(withModule, nodeInfo);
+                            nodeIdentifiers.add(withModule);
+                        }
+                        
+                        // 4. For modules, use just the module name
+                        if (trace.name === 'module' && module) {
+                            visibleNodes.set(module, nodeInfo);
+                            nodeIdentifiers.add(module);
+                        }
+                    }
+                }
+            });
+            
+            console.log('Visible node identifiers:', Array.from(nodeIdentifiers));
+            
+            // Filter original edges
+            if (graphData[0] && graphData[0].hovertext) {
+                const edgeTrace = filteredData[0];
+                const originalEdgeTrace = graphData[0];
+                
+                for (let i = 0; i < originalEdgeTrace.hovertext.length; i += 3) {
+                    if (i >= originalEdgeTrace.x.length) break;
+                    
+                    const hoverText = originalEdgeTrace.hovertext[i];
+                    if (!hoverText) continue;
+                    
+                    // Parse edge: "nodeA → nodeB (relation)" or "nodeA → nodeB"
+                    const match = hoverText.match(/^(.+?)\s*→\s*(.+?)(?:\s*\(|$)/);
+                    if (match) {
+                        let [, nodeA, nodeB] = match;
+                        nodeA = nodeA.trim();
+                        nodeB = nodeB.trim().replace(/\s*\(.+$/, ''); // Remove relation part if present
+                        
+                        // Check if both nodes exist in visible nodes (check all possible formats)
+                        const nodeAExists = nodeIdentifiers.has(nodeA);
+                        const nodeBExists = nodeIdentifiers.has(nodeB);
+                        
+                        if (nodeAExists && nodeBExists) {
+                            edgeTrace.x.push(originalEdgeTrace.x[i]);
+                            edgeTrace.y.push(originalEdgeTrace.y[i]);
+                            edgeTrace.z.push(originalEdgeTrace.z[i]);
+                            edgeTrace.x.push(originalEdgeTrace.x[i + 1]);
+                            edgeTrace.y.push(originalEdgeTrace.y[i + 1]);
+                            edgeTrace.z.push(originalEdgeTrace.z[i + 1]);
+                            edgeTrace.x.push(null);
+                            edgeTrace.y.push(null);
+                            edgeTrace.z.push(null);
+                            edgeTrace.hovertext.push(hoverText);
+                            edgeTrace.hovertext.push(hoverText);
+                            edgeTrace.hovertext.push(null);
+                        }
+                    }
+                }
+            }
+            
+            // Update the plot with filtered data
+            Plotly.react('myDiv', filteredData, myDiv.layout);
+        }
+        
+        // Select all files
+        function selectAllFiles() {
+            allFiles.forEach(fileName => {
+                const checkbox = document.getElementById(`file-${fileName}`);
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+            regenerateGraph();
+        }
+        
+        // Deselect all files
+        function deselectAllFiles() {
+            allFiles.forEach(fileName => {
+                const checkbox = document.getElementById(`file-${fileName}`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                }
+            });
+            regenerateGraph();
+        }
         
         // Dark mode toggle function
         function toggleTheme() {
@@ -857,6 +1252,8 @@ def visualize_file(py_path: str, out_html: str = None):
             if (myDiv && myDiv.data) {
                 graphData = JSON.parse(JSON.stringify(myDiv.data));
                 populateSearchSuggestions();
+                // Build file hierarchy after data is loaded
+                setTimeout(buildFileHierarchy, 200);
             }
             // Load saved theme preference
             loadThemePreference();
