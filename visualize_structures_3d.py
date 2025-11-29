@@ -150,14 +150,42 @@ def graph_to_plotly_3d(G: nx.Graph):
             label = f"{label} ({rel})"
         edge_hover += [label, label, None]
 
-    edge_trace = go.Scatter3d(
+        # default edge trace
+        default_color = 'rgb(0,100,200)'
+        default_opacity = 1.0
+
+        edge_trace = go.Scatter3d(
         x=edge_x, y=edge_y, z=edge_z,
         mode='lines',
-        line=dict(color='rgb(0,100,200)', width=3),
+        line=dict(color=default_color, width=3),
+        opacity=default_opacity,
         hoverinfo='text',
         hovertext=edge_hover,
         name='relations'
-    )
+        )
+
+        # Slider: provide a few preset colors + opacities that will restyle the edge trace (trace index 0)
+        slider_colors = [
+        ('rgb(0,100,200)', 1.0),
+        ('rgb(200,100,0)', 0.9),
+        ('rgb(50,200,50)', 0.7),
+        ('rgb(150,150,150)', 0.4),
+        ]
+        steps = []
+        for color, opa in slider_colors:
+        steps.append({
+            'label': f'{color} / {opa}',
+            'method': 'restyle',
+            # args: first dict = properties to update, second = list of trace indices to apply to
+            'args': [{'line.color': color, 'opacity': opa}, [0]]
+        })
+
+        sliders = [{
+        'active': 0,
+        'currentvalue': {'prefix': 'Edge color/opacity: '},
+        'pad': {'t': 50},
+        'steps': steps
+        }]
 
     # Nodes grouped by kind for coloring
     kinds = {}
