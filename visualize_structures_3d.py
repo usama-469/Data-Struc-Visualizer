@@ -1485,16 +1485,42 @@ def visualize_file(py_path: str, out_html: str = None):
             focusModeActive = false;
             focusedNodeData = null;
             
-            // Restore original graph by replotting
+            // Hide reset button first
+            document.getElementById('focus-reset-btn').style.display = 'none';
+            
+            // Restore graph by reapplying current filters
+            // Check which filters are active
+            const showModules = document.getElementById('show-modules').checked;
+            const showClasses = document.getElementById('show-classes').checked;
+            const showFunctions = document.getElementById('show-functions').checked;
+            const showBuiltins = document.getElementById('show-builtins').checked;
+            const showVariables = document.getElementById('show-variables').checked;
+            const showImports = document.getElementById('show-imports').checked;
+            
+            // Check if any type filters are disabled
+            const hasTypeFilters = !showModules || !showClasses || !showFunctions || 
+                                   !showBuiltins || !showVariables || !showImports;
+            
+            // Check if any files are disabled
+            const hasFileFilters = allFiles.some(fileName => {
+                const checkbox = document.getElementById(`file-${fileName}`);
+                return checkbox && !checkbox.checked;
+            });
+            
+            // Restore original graph
             const myDiv = document.getElementById('myDiv');
             if (myDiv && graphData) {
                 Plotly.newPlot('myDiv', graphData, getSafeLayout());
-                // Reattach click handler after newPlot
-                setTimeout(setupClickHandler, 100);
+                setTimeout(() => {
+                    setupClickHandler();
+                    // Reapply filters if any were active
+                    if (hasFileFilters) {
+                        regenerateGraph();
+                    } else if (hasTypeFilters) {
+                        filterNodes();
+                    }
+                }, 100);
             }
-            
-            // Hide reset button
-            document.getElementById('focus-reset-btn').style.display = 'none';
         }
         
         // Dark mode toggle function
